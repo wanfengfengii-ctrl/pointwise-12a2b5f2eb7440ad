@@ -1,0 +1,7 @@
+[
+  {"action": "sample", "channel": "pump-body", "value": 4},
+  {"action": "sample", "channel": "pump-body", "value": 9},
+  {"action": "sample", "channel": "pump-body", "value": 9},
+  {"action": "sample", "channel": "pump-body", "value": 12},
+  {"action": "sample", "channel": "pump-body", "value": 5}
+]
