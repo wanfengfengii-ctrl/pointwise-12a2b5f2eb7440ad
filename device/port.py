@@ -19,6 +19,14 @@ class StoppedSlot:
     snapshot: RegisterSnapshot
 
 
+@dataclass(frozen=True)
+class SegmentCut:
+    """The boundary event and the finished segment meter at a continuous cut."""
+
+    boundary: ControlEvent
+    snapshot: RegisterSnapshot
+
+
 class DevicePort:
     def __init__(self) -> None:
         self._device_id = uuid4().hex
@@ -26,6 +34,8 @@ class DevicePort:
         self._source = DeterministicSource()
         self._slots = (MeterRegister(), MeterRegister())
         self._write_slot = 0
+        self._segment = MeterRegister()
+        self._continuous = False
         self._channel: str | None = None
         self._start: ControlEvent | None = None
         self._stopped: StoppedSlot | None = None
@@ -55,7 +65,7 @@ class DevicePort:
             raise DeviceRejectedError(f'unknown meter slot: {slot!r}')
         return self._slots[slot]
 
-    def start_sampling(self, channel: str) -> ControlEvent:
+    def start_sampling(self, channel: str, *, continuous: bool = False) -> ControlEvent:
         with self._lock:
             self._require_open()
             if not isinstance(channel, str) or not channel or channel.strip() != channel:
@@ -67,6 +77,8 @@ class DevicePort:
             self._write_slot = 0
             self._channel = channel
             self._running = True
+            self._segment.clear()
+            self._continuous = continuous
             self._start = self._source.record_control('start', channel, self._write_slot)
             return self._start
 
@@ -78,7 +90,12 @@ class DevicePort:
             if channel != self._channel:
                 raise SampleRejectedError('sample channel differs from active channel')
             register = self._slots[self._write_slot]
-            return self._source.accept_sample(channel, value, register.append).sample_no
+
+            def append(event):
+                register.append(event)
+                self._segment.append(event)
+
+            return self._source.accept_sample(channel, value, append).sample_no
 
     def read_slot(self, slot: int | None = None) -> RegisterSnapshot:
         with self._lock:
@@ -95,7 +112,22 @@ class DevicePort:
             self._stopped = StoppedSlot(
                 self._device_id, self._start, event, self._slots[self._write_slot].snapshot()
             )
+            self._continuous = False
+            self._segment.clear()
             return self._stopped
+
+    def cut_sampling(self) -> SegmentCut:
+        """Record a continuous segment boundary while sampling keeps running."""
+        with self._lock:
+            self._require_open()
+            if not self._running or self._start is None:
+                raise DeviceRejectedError('device is not sampling')
+            if not self._continuous:
+                raise DeviceRejectedError('segment cuts require a continuous sampling run')
+            event = self._source.record_control('cut', self._channel, self._write_slot)
+            snapshot = self._segment.snapshot()
+            self._segment.clear()
+            return SegmentCut(event, snapshot)
 
     def read_stopped_slot(self) -> StoppedSlot:
         with self._lock:
@@ -138,6 +170,8 @@ class DevicePort:
             self._start = None
             self._channel = None
             self._write_slot = 0
+            self._continuous = False
+            self._segment.clear()
 
     def subscribe(self) -> EventSubscription:
         with self._lock:

@@ -20,6 +20,7 @@ class Session:
     stop_sequence: int | None = None
     stop_watermark: int | None = None
     stop_slot: int | None = None
+    continuous: bool = False
 
 
 class SessionRegistry:
@@ -27,6 +28,7 @@ class SessionRegistry:
         self.lock = RLock()
         self._sessions: dict[str, Session] = {}
         self._current_id: str | None = None
+        self.ledger: object | None = None
 
     def require(self, session_id: str) -> Session:
         with self.lock:

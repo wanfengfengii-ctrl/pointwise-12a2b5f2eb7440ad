@@ -33,3 +33,14 @@ python3 -B -m unittest discover -s tests -t . -p 'test_*.py'
 独立设备夹具可以调用 `read_slot`、`switch_write_slot` 和 `reset_idle_slot`，或在录制中使用 `read`、`switch` 和 `reset_idle` 步骤。切换只能指向空的停用槽。设备在同一源序中执行采样和控制，切换事件携带实际样本水位、旧槽和目标槽。写入槽与受保护的停机原槽不能由停用槽原语清除。`subscribe()` 返回实时订阅，`drain()` 按顺序领取自订阅以来尚未读取的样本与控制事件，关闭订阅时丢弃未领事件。设备的 `actions` 保留控制事实；读槽不产生控制事件。日常试验通过 `start`、`preview`、`stop`、`issue` 和 `reset` 完成。
 
 完整回归覆盖同值峰、输入拒绝、忙态归属、停机事实核验、提交失败、已签重投、复位重用、断源领取、零峰和大整数。归档的提交前故障回归在真实 SQLite 事务内注入一次异常，并通过独立连接检查可见性。
+
+## 连续切段试验
+
+连续模式面向单台设备上的单通道试验，台架采样不停止即可切段，规范见 `CONTINUOUS.md`。
+
+1. `capture.control.start(..., continuous=True)` 从实际开测水位起第一段，会话冻结试验通道与限值；省略该参数仍走原停机流程。设备新增 `cut_sampling()` 原语：记录带控制事件序和当时 `last_sample_no` 的 `cut` 控制事件，原子交还本段计量并清空段寄存器，采样继续。
+2. `capture.control.cut(store, sessions, device, session_id, request_id)` 按会话内非空请求号切段，返回 `CutResult(status, issued)`。前段边界是开测水位或上一次实际切段水位；每段固定会话、通道、请求号、切点、计量和冻结限值。峰值等于或低于限值为 `pass`，超限为 `fail`，空切为 `no_data`，同值峰取首次样本。
+3. 一次只处理一项未签切段。采集端在接管事务提交前保有原段完整副本（`segment_custody` 表），签发只使用已接管的同一份原件，报告与回执在同一事务原子发布（`segment_reports`、`segment_receipts`）。接管或签发写入失败返回 `pending` 且不发布，采样继续；同号沿原切点续办并保持报告号，在办期间新号返回 `busy` 且不占号、不触发设备切段，已签同号复领原结果。
+4. `ArchiveStore.open(path, *, before_commit=None, before_custody_commit=None)` 的两个钩子分别在签发事务和接管事务提交前调用，供确定性故障注入。
+5. `archive.readback.read(store, report_id)` 同时识别停机报告和切段报告：切段记录的 `report` 提供 `report_id`、`session_id`、`channel`、`request_id`、`device_id`、`boundary`（真实 `ControlEvent`）、`snapshot`（`RegisterSnapshot`）、`limit` 和 `outcome`，`receipt` 提供回执号、报告号和会话号。停源重开归档后仍凭原报告号领取同一份报告和回执；未知号仍抛 `ReportLookupError`，原停机成果保持原 `IssuedRecord` 类型。
+6. 连续会话不接受停机入口；本模式不涉及未签会话的跨进程恢复、多通道同步或连续会话的停机关单。`recordings/continuous.json` 给出 A/B/C 三段的手算示例。

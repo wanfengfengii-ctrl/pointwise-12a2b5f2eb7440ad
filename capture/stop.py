@@ -37,6 +37,8 @@ def _bind_original(session: Session, original: StoppedSlot) -> StoppedEvidence:
 def stop(sessions: SessionRegistry, device: DevicePort, session_id: str) -> StoppedEvidence:
     with sessions.lock:
         session = sessions.require_current(session_id, 'running')
+        if session.continuous:
+            raise SessionStateError('continuous sessions end by closing the source, not by stop')
         _require_bound_device(session, device)
         try:
             original = device.stop_sampling()

@@ -1,13 +1,16 @@
-from archive.store import ArchiveStore, IssuedRecord
+from archive.store import ArchiveStore, IssuedRecord, SegmentIssuedRecord
 
 
 class ReportLookupError(KeyError):
     pass
 
 
-def read(store: ArchiveStore, report_id: str) -> IssuedRecord:
+def read(store: ArchiveStore, report_id: str) -> IssuedRecord | SegmentIssuedRecord:
     if not isinstance(report_id, str):
         raise ReportLookupError(report_id)
+    segment = store.find_segment_by_report_id(report_id)
+    if segment is not None:
+        return segment
     issued = store.find_by_report_id(report_id)
     if issued is None:
         raise ReportLookupError(report_id)

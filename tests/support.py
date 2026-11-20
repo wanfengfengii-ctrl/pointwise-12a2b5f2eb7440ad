@@ -56,8 +56,12 @@ class BenchCase(unittest.TestCase):
         self.fault = CommitFault()
         self.store = self.open_archive(before_commit=self.fault)
 
-    def open_archive(self, *, before_commit=None):
-        store = ArchiveStore.open(self.path, before_commit=before_commit)
+    def open_archive(self, *, before_commit=None, before_custody_commit=None):
+        store = ArchiveStore.open(
+            self.path,
+            before_commit=before_commit,
+            before_custody_commit=before_custody_commit,
+        )
         self.addCleanup(store.close)
         return store
 
